@@ -1,0 +1,29 @@
+import org.gradle.api.initialization.resolve.RepositoriesMode
+
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+
+    plugins {
+        id 'com.gradle.plugin-publish' version '1.2.0'
+        id 'org.jetbrains.kotlin.jvm' version '1.8.22'
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    versionCatalogs {
+        libs {
+            library('android-gradle-api','com.android.tools.build:gradle-api:8.0.2')
+            library('asm', 'org.ow2.asm:asm-commons:9.5')
+        }
+    }
+}

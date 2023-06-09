@@ -1,0 +1,24 @@
+plugins {
+    id 'com.gradle.plugin-publish'
+    id 'org.jetbrains.kotlin.jvm'
+}
+
+gradlePlugin {
+    plugins {
+        tracex {
+            id = 'io.github.b7woreo.tracex'
+            implementationClass = 'tracex.TraceXPlugin'
+        }
+    }
+}
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
+}
+
+dependencies {
+    implementation libs.android.gradle.api
+    implementation libs.asm
+}
