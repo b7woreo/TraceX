@@ -21,4 +21,14 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    buildTypes {
+        profile {
+            initWith release
+            signingConfig debug.signingConfig
+            tracex {
+                enable = true
+            }
+        }
+    }
 }

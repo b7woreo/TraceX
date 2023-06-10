@@ -7,7 +7,7 @@ gradlePlugin {
     plugins {
         tracex {
             id = 'io.github.b7woreo.tracex'
-            implementationClass = 'tracex.TraceXPlugin'
+            implementationClass = 'tracex.TracePlugin'
         }
     }
 }
