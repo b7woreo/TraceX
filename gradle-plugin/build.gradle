@@ -1,20 +1,31 @@
 plugins {
-    id 'com.gradle.plugin-publish'
     id 'org.jetbrains.kotlin.jvm'
+    id 'com.gradle.plugin-publish'
 }
 
-gradlePlugin {
-    plugins {
-        tracex {
-            id = 'io.github.b7woreo.tracex'
-            implementationClass = 'tracex.TracePlugin'
-        }
-    }
-}
+group = "io.github.b7woreo"
+version = findProperty("gradle.publish.version") ?: "snapshot"
 
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))
+    }
+    withJavadocJar()
+    withSourcesJar()
+}
+
+gradlePlugin {
+    website = "https://github.com/b7woreo/TraceX"
+    vcsUrl = "https://github.com/b7woreo/TraceX"
+
+    plugins {
+        tracex {
+            id = 'io.github.b7woreo.tracex'
+            implementationClass = 'tracex.TracePlugin'
+            displayName = 'TraceX'
+            description = 'TraceX plugin for gradle'
+            tags.set(['android', 'method trace'])
+        }
     }
 }
 
