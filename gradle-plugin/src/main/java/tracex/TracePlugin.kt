@@ -39,7 +39,11 @@ abstract class TracePlugin : Plugin<Project> {
             val traceTransformTask = project.tasks.register(
                 "transform${variant.name.capitalized()}WithTraceX",
                 TraceTransformTask::class.java
-            )
+            ) {
+                it.intermediate.set(
+                    project.layout.buildDirectory.dir("intermediates/tracex/${variant.name}")
+                )
+            }
 
             variant.artifacts
                 .forScope(ScopedArtifacts.Scope.ALL)
