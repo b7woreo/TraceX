@@ -1,11 +1,10 @@
 plugins {
-    id 'com.android.application'
+    id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
-    id 'io.github.b7woreo.tracex'
 }
 
 android {
-    namespace 'com.example.application'
+    namespace 'com.example.library'
     compileSdk = 33
 
     defaultConfig {
@@ -21,14 +20,8 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+}
 
-    buildTypes {
-        profile {
-            initWith release
-            signingConfig debug.signingConfig
-            tracex {
-                enable = true
-            }
-        }
-    }
+dependencies {
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
 }

@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'io.github.b7woreo.tracex'
+}
+
+android {
+    namespace 'com.example.application'
+    compileSdk = 33
+
+    defaultConfig {
+        minSdk 21
+        targetSdkVersion 33
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility = 17
+        targetCompatibility = 17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildTypes {
+        profile {
+            initWith release
+            matchingFallbacks = ['release']
+            signingConfig debug.signingConfig
+            tracex {
+                enable = true
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation implementation(project(':example:lib',))
+    implementation "androidx.activity:activity-ktx:1.7.2"
+}
