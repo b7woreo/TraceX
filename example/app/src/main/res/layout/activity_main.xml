@@ -9,13 +9,12 @@
         android:id="@+id/tv_count"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:gravity="center" />
 
     <Button
         android:id="@+id/btn_inc"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:text="click" />
+        android:layout_gravity="center" />
 </LinearLayout>
