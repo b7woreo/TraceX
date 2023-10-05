@@ -8,6 +8,7 @@ import org.gradle.api.file.RegularFile
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
@@ -35,6 +36,7 @@ import java.util.zip.Deflater
 import javax.inject.Inject
 
 
+@CacheableTask
 abstract class TraceTransformTask : DefaultTask() {
 
     @get:Internal
@@ -76,6 +78,7 @@ abstract class TraceTransformTask : DefaultTask() {
 
         changedJars.forEach { changedJar ->
             workQueue.submit(TransformJar::class.java) {
+                it.rootDir.set(project.rootDir)
                 it.source.set(changedJar.file)
                 it.normalizedPath.set(changedJar.normalizedPath)
                 it.changeType.set(changedJar.changeType)
@@ -85,6 +88,7 @@ abstract class TraceTransformTask : DefaultTask() {
 
         changedClasses.forEach { changedClass ->
             workQueue.submit(TransformClass::class.java) {
+                it.rootDir.set(project.rootDir)
                 it.source.set(changedClass.file)
                 it.normalizedPath.set(changedClass.normalizedPath)
                 it.changeType.set(changedClass.changeType)
@@ -123,6 +127,9 @@ abstract class TraceTransformTask : DefaultTask() {
     }
 
     abstract class Transform : WorkAction<Transform.Parameters> {
+
+        protected val rootDir: File
+            get() = parameters.rootDir.get().asFile
 
         protected val source: File
             get() = parameters.source.get().asFile
@@ -192,6 +199,7 @@ abstract class TraceTransformTask : DefaultTask() {
         }
 
         interface Parameters : WorkParameters {
+            val rootDir: DirectoryProperty
             val source: RegularFileProperty
             val normalizedPath: Property<String>
             val changeType: Property<ChangeType>
@@ -202,7 +210,7 @@ abstract class TraceTransformTask : DefaultTask() {
     abstract class TransformJar : Transform() {
 
         override val destination: File
-            get() = File(intermediate, source.nameWithoutExtension.toSha256())
+            get() = File(intermediate, source.identify())
 
         override fun transform() {
             JarInputStream(
@@ -224,6 +232,17 @@ abstract class TraceTransformTask : DefaultTask() {
                         }
                 }
             }
+        }
+
+        private fun File.identify(): String {
+            var current: File? = this
+            while (current != null) {
+                if (rootDir == current) {
+                    return toRelativeString(rootDir).toSha256()
+                }
+                current = current.parentFile
+            }
+            return name.toSha256()
         }
 
         private fun String.toSha256(): String {
