@@ -20,6 +20,7 @@ import org.gradle.work.Incremental
 import org.gradle.work.InputChanges
 import org.gradle.workers.WorkAction
 import org.gradle.workers.WorkParameters
+import org.gradle.workers.WorkQueue
 import org.gradle.workers.WorkerExecutor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassWriter
@@ -27,7 +28,6 @@ import org.objectweb.asm.Opcodes
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.MessageDigest
 import java.util.Locale
 import java.util.jar.JarEntry
 import java.util.jar.JarInputStream
@@ -71,50 +71,74 @@ abstract class TraceTransformTask : DefaultTask() {
     @TaskAction
     fun transform(inputChanges: InputChanges) {
         val workQueue = workerExecutor.noIsolation()
-
-        val changedJars = inputChanges.getFileChanges(allJarsFileCollection)
-        val changedClasses = inputChanges.getFileChanges(allDirectoriesFileCollection)
         val intermediate = intermediate.get().asFile
 
-        changedJars.forEach { changedJar ->
-            workQueue.submit(TransformJar::class.java) {
-                it.rootDir.set(project.rootDir)
-                it.source.set(changedJar.file)
-                it.normalizedPath.set(changedJar.normalizedPath)
-                it.changeType.set(changedJar.changeType)
-                it.intermediate.set(intermediate)
-            }
-        }
+        val intermediateJars = intermediate.resolve("jars")
+        val intermediateClasses = intermediate.resolve("classes")
 
-        changedClasses.forEach { changedClass ->
-            workQueue.submit(TransformClass::class.java) {
-                it.rootDir.set(project.rootDir)
-                it.source.set(changedClass.file)
-                it.normalizedPath.set(changedClass.normalizedPath)
-                it.changeType.set(changedClass.changeType)
-                it.intermediate.set(intermediate)
-            }
-        }
+        transformJars(
+            inputChanges = inputChanges,
+            intermediate = intermediateJars,
+            workQueue = workQueue
+        )
+
+        transformClasses(
+            inputChanges = inputChanges,
+            intermediate = intermediateClasses,
+            workQueue = workQueue
+        )
 
         workQueue.await()
 
         mergeClasses(
-            intermediate,
             outputJar.get().asFile,
+            intermediateClasses,
+            *(intermediateJars.listFiles() ?: emptyArray())
         )
     }
 
+    private fun transformJars(inputChanges: InputChanges, intermediate: File, workQueue: WorkQueue) {
+        val (jarChanges, reprocessAll) = JarsIdentity(
+            inputJars = allJarsFileCollection,
+            inputChanges = inputChanges
+        ).compute()
+
+        if (reprocessAll) {
+            intermediate.deleteRecursively()
+        }
+
+        jarChanges.forEach { changedJar ->
+            workQueue.submit(TransformJar::class.java) {
+                it.identity.set(changedJar.identity)
+                it.source.set(changedJar.file)
+                it.changeType.set(ChangeType.MODIFIED)
+                it.intermediate.set(intermediate)
+            }
+        }
+    }
+
+    private fun transformClasses(inputChanges: InputChanges, intermediate: File, workQueue: WorkQueue) {
+        val classChanges = inputChanges.getFileChanges(allDirectoriesFileCollection)
+        classChanges.forEach { changedClass ->
+            workQueue.submit(TransformClass::class.java) {
+                it.normalizedPath.set(changedClass.normalizedPath)
+                it.source.set(changedClass.file)
+                it.changeType.set(changedClass.changeType)
+                it.intermediate.set(intermediate)
+            }
+        }
+    }
+
     private fun mergeClasses(
-        intermediate: File,
         outputJar: File,
+        vararg classpath: File,
     ) {
         JarOutputStream(
             outputJar.outputStream()
                 .buffered()
         ).use { jar ->
             jar.setLevel(Deflater.NO_COMPRESSION)
-
-            intermediate.listFiles()?.forEach { rootDir ->
+            classpath.forEach { rootDir ->
                 rootDir.allFiles { child ->
                     val name = child.toRelativeString(rootDir)
                     val entry = JarEntry(name)
@@ -126,16 +150,10 @@ abstract class TraceTransformTask : DefaultTask() {
         }
     }
 
-    abstract class Transform : WorkAction<Transform.Parameters> {
-
-        protected val rootDir: File
-            get() = parameters.rootDir.get().asFile
+    abstract class Transform<T : Transform.Parameters> : WorkAction<T> {
 
         protected val source: File
             get() = parameters.source.get().asFile
-
-        protected val normalizedPath: String
-            get() = parameters.normalizedPath.get()
 
         protected val changeType: ChangeType
             get() = parameters.changeType.get()
@@ -148,7 +166,7 @@ abstract class TraceTransformTask : DefaultTask() {
         protected abstract fun transform()
 
         final override fun execute() {
-            println("[$changeType] $source($normalizedPath) -> $destination")
+            println("[$changeType] $source -> $destination")
 
             when (changeType) {
                 ChangeType.ADDED -> {
@@ -199,18 +217,18 @@ abstract class TraceTransformTask : DefaultTask() {
         }
 
         interface Parameters : WorkParameters {
-            val rootDir: DirectoryProperty
             val source: RegularFileProperty
-            val normalizedPath: Property<String>
             val changeType: Property<ChangeType>
             val intermediate: DirectoryProperty
         }
     }
 
-    abstract class TransformJar : Transform() {
+    abstract class TransformJar : Transform<TransformJar.Parameters>() {
+        val identity: String
+            get() = parameters.identity.get()
 
         override val destination: File
-            get() = File(intermediate, source.identify())
+            get() = File(intermediate, identity)
 
         override fun transform() {
             JarInputStream(
@@ -234,28 +252,18 @@ abstract class TraceTransformTask : DefaultTask() {
             }
         }
 
-        private fun File.identify(): String {
-            var current: File? = this
-            while (current != null) {
-                if (rootDir == current) {
-                    return toRelativeString(rootDir).toSha256()
-                }
-                current = current.parentFile
-            }
-            return name.toSha256()
-        }
-
-        private fun String.toSha256(): String {
-            val md = MessageDigest.getInstance("SHA-256")
-            val bytes = md.digest(this.toByteArray())
-            return bytes.joinToString("") { "%02x".format(it) }
+        interface Parameters : Transform.Parameters {
+            val identity: Property<String>
         }
     }
 
-    abstract class TransformClass : Transform() {
+    abstract class TransformClass : Transform<TransformClass.Parameters>() {
+
+        protected val normalizedPath: String
+            get() = parameters.normalizedPath.get()
 
         override val destination: File
-            get() = File(intermediate.resolve("classes"), normalizedPath)
+            get() = File(intermediate, normalizedPath)
 
         override fun transform() {
             if (!includeFileInTransform(normalizedPath)) return
@@ -271,6 +279,10 @@ abstract class TraceTransformTask : DefaultTask() {
                             transform(input, output)
                         }
                 }
+        }
+
+        interface Parameters : Transform.Parameters {
+            val normalizedPath: Property<String>
         }
     }
 
