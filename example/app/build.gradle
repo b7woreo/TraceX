@@ -39,6 +39,6 @@ android {
 }
 
 dependencies {
-    implementation implementation(project(':example:lib',))
+    implementation implementation(project(':example:lib'))
     implementation "androidx.activity:activity-ktx:1.7.2"
 }
