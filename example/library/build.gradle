@@ -1,15 +1,15 @@
 plugins {
-    id 'com.android.library'
-    id 'org.jetbrains.kotlin.android'
+    alias(libraries.plugins.android.library)
+    alias(libraries.plugins.kotlin.android)
 }
 
 android {
     namespace 'com.example.library'
-    compileSdk = 33
+    compileSdk 34
 
     defaultConfig {
         minSdk 21
-        targetSdkVersion 33
+        targetSdk 34
     }
 
     compileOptions {
@@ -23,5 +23,5 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2'
+    implementation(libraries.androidx.lifecycle.viewmodel)
 }

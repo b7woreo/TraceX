@@ -1,0 +1,17 @@
+[versions]
+android = '8.2.0'
+kotlin = '1.9.20'
+
+[libraries]
+android_gradle_api = { module = "com.android.tools.build:gradle-api", version.ref = 'android' }
+asm = { module = 'org.ow2.asm:asm-commons', version = '9.6' }
+androidx_lifecycle_viewmodel = { module = 'androidx.lifecycle:lifecycle-viewmodel-ktx', version = '2.6.2' }
+androidx_activity = { module = 'androidx.activity:activity-ktx', version = '1.8.2' }
+
+
+[plugins]
+android_application = { id = 'com.android.application', version.ref = 'android' }
+android_library = { id = 'com.android.library', version.ref = 'android' }
+kotlin_jvm = { id = 'org.jetbrains.kotlin.jvm', version.ref = 'kotlin' }
+kotlin_android = { id = 'org.jetbrains.kotlin.android', version.ref = 'kotlin' }
+plugin_publish = { id = 'com.gradle.plugin-publish', version = '1.2.0' }

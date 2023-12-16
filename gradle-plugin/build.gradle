@@ -1,6 +1,6 @@
 plugins {
-    id 'org.jetbrains.kotlin.jvm'
-    id 'com.gradle.plugin-publish'
+    alias(libraries.plugins.kotlin.jvm)
+    alias(libraries.plugins.plugin.publish)
 }
 
 group = "io.github.b7woreo"
@@ -30,6 +30,6 @@ gradlePlugin {
 }
 
 dependencies {
-    implementation libs.android.gradle.api
-    implementation libs.asm
+    implementation libraries.android.gradle.api
+    implementation libraries.asm
 }

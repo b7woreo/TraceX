@@ -8,12 +8,6 @@ pluginManagement {
         google()
         mavenCentral()
     }
-
-    plugins {
-        id 'com.android.application' version '8.1.2' apply false
-        id 'com.android.library' version '8.1.2' apply false
-        id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
-    }
 }
 
 dependencyResolutionManagement {
@@ -22,8 +16,13 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
     }
+    versionCatalogs {
+        libraries {
+            from(files("gradle/versions.toml"))
+        }
+    }
 }
 
 rootProject.name = 'TraceX'
-include ':example:app'
-include ':example:lib'
+include ':example:application'
+include ':example:library'

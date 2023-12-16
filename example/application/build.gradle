@@ -1,16 +1,16 @@
 plugins {
-    id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
+    alias(libraries.plugins.android.application)
+    alias(libraries.plugins.kotlin.android)
     id 'io.github.b7woreo.tracex'
 }
 
 android {
     namespace 'com.example.application'
-    compileSdk = 33
+    compileSdk 34
 
     defaultConfig {
         minSdk 21
-        targetSdkVersion 33
+        targetSdkVersion 34
     }
 
     buildFeatures {
@@ -39,6 +39,6 @@ android {
 }
 
 dependencies {
-    implementation implementation(project(':example:lib'))
-    implementation "androidx.activity:activity-ktx:1.7.2"
+    implementation(project(':example:library'))
+    implementation(libraries.androidx.activity)
 }
