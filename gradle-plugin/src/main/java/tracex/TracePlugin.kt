@@ -7,6 +7,7 @@ import com.android.build.api.variant.ScopedArtifacts
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.configurationcache.extensions.capitalized
+import tracex
 
 abstract class TracePlugin : Plugin<Project> {
 
@@ -18,7 +19,7 @@ abstract class TracePlugin : Plugin<Project> {
             .getByType(ApplicationExtension::class.java)
 
         androidExtension.buildTypes.configureEach { buildType ->
-            buildType.extensions.create("tracex", TraceExtension::class.java)
+            TraceExtension.create(buildType)
         }
 
         val componentsExtension = project.extensions
@@ -27,10 +28,10 @@ abstract class TracePlugin : Plugin<Project> {
         componentsExtension.onVariants { variant ->
             val buildTypeName = variant.buildType ?: return@onVariants
 
-            val traceExtension = androidExtension.buildTypes
+            val traceExtension = androidExtension
+                .buildTypes
                 .getByName(buildTypeName)
-                .extensions
-                .getByType(TraceExtension::class.java)
+                .tracex()
 
             if (!traceExtension.enable.getOrElse(false)) {
                 return@onVariants
