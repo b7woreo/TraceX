@@ -70,6 +70,13 @@ abstract class TraceTransformTask : DefaultTask() {
 
     @TaskAction
     fun transform(inputChanges: InputChanges) {
+        val incremental = inputChanges.isIncremental
+        if (!incremental) {
+            println("Full build mode")
+        } else {
+            println("Incremental build mode")
+        }
+
         val workQueue = workerExecutor.noIsolation()
         val intermediate = intermediate.get().asFile
 
@@ -113,6 +120,7 @@ abstract class TraceTransformTask : DefaultTask() {
                 it.source.set(changedJar.file)
                 it.changeType.set(ChangeType.MODIFIED)
                 it.intermediate.set(intermediate)
+                it.loggable.set(inputChanges.isIncremental)
             }
         }
     }
@@ -125,6 +133,7 @@ abstract class TraceTransformTask : DefaultTask() {
                 it.source.set(changedClass.file)
                 it.changeType.set(changedClass.changeType)
                 it.intermediate.set(intermediate)
+                it.loggable.set(inputChanges.isIncremental)
             }
         }
     }
@@ -161,12 +170,17 @@ abstract class TraceTransformTask : DefaultTask() {
         protected val intermediate: File
             get() = parameters.intermediate.get().asFile
 
+        protected val loggable: Boolean
+            get() = parameters.loggable.get()
+
         protected abstract val destination: File
 
         protected abstract fun transform()
 
         final override fun execute() {
-            println("[$changeType] $source -> $destination")
+            if (loggable) {
+                println("[$changeType] $source -> $destination")
+            }
 
             when (changeType) {
                 ChangeType.ADDED -> {
@@ -220,6 +234,7 @@ abstract class TraceTransformTask : DefaultTask() {
             val source: RegularFileProperty
             val changeType: Property<ChangeType>
             val intermediate: DirectoryProperty
+            val loggable: Property<Boolean>
         }
     }
 
