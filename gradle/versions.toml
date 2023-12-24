@@ -7,7 +7,8 @@ android_gradle_api = { module = "com.android.tools.build:gradle-api", version.re
 asm = { module = 'org.ow2.asm:asm-commons', version = '9.6' }
 androidx_lifecycle_viewmodel = { module = 'androidx.lifecycle:lifecycle-viewmodel-ktx', version = '2.6.2' }
 androidx_activity = { module = 'androidx.activity:activity-ktx', version = '1.8.2' }
-
+kotlin_test = { module = 'org.jetbrains.kotlin:kotlin-test', version.ref = 'kotlin' }
+kotlinx_coroutine_android = { module = 'org.jetbrains.kotlinx:kotlinx-coroutines-android', version = '1.7.3' }
 
 [plugins]
 android_application = { id = 'com.android.application', version.ref = 'android' }

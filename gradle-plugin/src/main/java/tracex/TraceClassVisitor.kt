@@ -5,6 +5,7 @@ import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.commons.AdviceAdapter
 
 class TraceClassVisitor(
+    private val filter: (String) -> Boolean,
     api: Int,
     next: ClassVisitor,
 ) : ClassVisitor(api, next) {
@@ -31,15 +32,20 @@ class TraceClassVisitor(
         exceptions: Array<out String>?
     ): MethodVisitor {
         val mv = super.visitMethod(access, name, descriptor, signature, exceptions)
-        return TraceMethodVisitor(api, mv, access, name, descriptor)
+        val traceTag = "$className#$name"
+        if (!filter(traceTag)) {
+            return mv
+        }
+        return TraceMethodVisitor(traceTag, api, mv, access, name, descriptor)
     }
 
     private inner class TraceMethodVisitor(
+        private val traceTag: String,
         api: Int,
         methodVisitor: MethodVisitor?,
         access: Int,
         name: String?,
-        descriptor: String?
+        descriptor: String?,
     ) : AdviceAdapter(
         api,
         methodVisitor,
@@ -49,7 +55,7 @@ class TraceClassVisitor(
     ) {
 
         override fun onMethodEnter() {
-            mv.visitLdcInsn("$className#$name")
+            mv.visitLdcInsn(traceTag)
             mv.visitMethodInsn(
                 INVOKESTATIC,
                 "android/os/Trace",

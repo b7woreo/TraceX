@@ -10,6 +10,7 @@ import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Classpath
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
@@ -59,6 +60,12 @@ abstract class TraceTransformTask : DefaultTask() {
         project.files(allDirectories)
     }
 
+    @get:Input
+    abstract val includes: ListProperty<String>
+
+    @get:Input
+    abstract val excludes: ListProperty<String>
+
     @get:OutputDirectory
     abstract val intermediate: DirectoryProperty
 
@@ -84,30 +91,23 @@ abstract class TraceTransformTask : DefaultTask() {
         val intermediateClasses = intermediate.resolve("classes")
 
         transformJars(
-            inputChanges = inputChanges,
-            intermediate = intermediateJars,
-            workQueue = workQueue
+            inputChanges = inputChanges, intermediate = intermediateJars, workQueue = workQueue
         )
 
         transformClasses(
-            inputChanges = inputChanges,
-            intermediate = intermediateClasses,
-            workQueue = workQueue
+            inputChanges = inputChanges, intermediate = intermediateClasses, workQueue = workQueue
         )
 
         workQueue.await()
 
         mergeClasses(
-            outputJar.get().asFile,
-            intermediateClasses,
-            *(intermediateJars.listFiles() ?: emptyArray())
+            outputJar.get().asFile, intermediateClasses, *(intermediateJars.listFiles() ?: emptyArray())
         )
     }
 
     private fun transformJars(inputChanges: InputChanges, intermediate: File, workQueue: WorkQueue) {
         val (jarChanges, reprocessAll) = JarsIdentity(
-            inputJars = allJarsFileCollection,
-            inputChanges = inputChanges
+            inputJars = allJarsFileCollection, inputChanges = inputChanges
         ).compute()
 
         if (reprocessAll) {
@@ -121,6 +121,8 @@ abstract class TraceTransformTask : DefaultTask() {
                 it.changeType.set(ChangeType.MODIFIED)
                 it.intermediate.set(intermediate)
                 it.loggable.set(inputChanges.isIncremental)
+                it.includes.set(includes)
+                it.excludes.set(excludes)
             }
         }
     }
@@ -134,6 +136,8 @@ abstract class TraceTransformTask : DefaultTask() {
                 it.changeType.set(changedClass.changeType)
                 it.intermediate.set(intermediate)
                 it.loggable.set(inputChanges.isIncremental)
+                it.includes.set(includes)
+                it.excludes.set(excludes)
             }
         }
     }
@@ -143,8 +147,7 @@ abstract class TraceTransformTask : DefaultTask() {
         vararg classpath: File,
     ) {
         JarOutputStream(
-            outputJar.outputStream()
-                .buffered()
+            outputJar.outputStream().buffered()
         ).use { jar ->
             jar.setLevel(Deflater.NO_COMPRESSION)
             classpath.forEach { rootDir ->
@@ -164,14 +167,21 @@ abstract class TraceTransformTask : DefaultTask() {
         protected val source: File
             get() = parameters.source.get().asFile
 
-        protected val changeType: ChangeType
-            get() = parameters.changeType.get()
-
         protected val intermediate: File
             get() = parameters.intermediate.get().asFile
 
-        protected val loggable: Boolean
+        private val changeType: ChangeType
+            get() = parameters.changeType.get()
+
+        private val loggable: Boolean
             get() = parameters.loggable.get()
+
+        private val filter: (String) -> Boolean by lazy {
+            val includes = parameters.includes.get()
+            val excludes = parameters.excludes.get()
+            val matcher = TraceTagMatcher(includes, excludes)
+            return@lazy { traceTag -> matcher.isMatch(traceTag) }
+        }
 
         protected abstract val destination: File
 
@@ -206,18 +216,11 @@ abstract class TraceTransformTask : DefaultTask() {
                 return false
             }
 
-            if (lowerCase == "module-info.class" ||
-                lowerCase.endsWith("/module-info.class")
-            ) {
+            if (lowerCase == "module-info.class" || lowerCase.endsWith("/module-info.class")) {
                 return false
             }
 
-            if (lowerCase.startsWith("/meta-info/") ||
-                lowerCase.startsWith("meta-info/")
-            ) {
-                return false
-            }
-            return true
+            return !(lowerCase.startsWith("/meta-info/") || lowerCase.startsWith("meta-info/"))
         }
 
         protected fun transform(
@@ -226,7 +229,7 @@ abstract class TraceTransformTask : DefaultTask() {
         ) {
             val cr = ClassReader(input)
             val cw = ClassWriter(ClassWriter.COMPUTE_MAXS)
-            cr.accept(TraceClassVisitor(Opcodes.ASM9, cw), ClassReader.EXPAND_FRAMES)
+            cr.accept(TraceClassVisitor(filter, Opcodes.ASM9, cw), ClassReader.EXPAND_FRAMES)
             output.write(cw.toByteArray())
         }
 
@@ -235,11 +238,13 @@ abstract class TraceTransformTask : DefaultTask() {
             val changeType: Property<ChangeType>
             val intermediate: DirectoryProperty
             val loggable: Property<Boolean>
+            val includes: ListProperty<String>
+            val excludes: ListProperty<String>
         }
     }
 
     abstract class TransformJar : Transform<TransformJar.Parameters>() {
-        val identity: String
+        private val identity: String
             get() = parameters.identity.get()
 
         override val destination: File
@@ -252,15 +257,12 @@ abstract class TraceTransformTask : DefaultTask() {
                 while (true) {
                     val entry = input.nextEntry ?: break
                     if (!includeFileInTransform(entry.name)) continue
-                    val outputFile = File(destination, entry.name)
-                        .also {
+                    val outputFile = File(destination, entry.name).also {
                             it.parentFile.mkdirs()
                             it.createNewFile()
                         }
 
-                    outputFile.outputStream()
-                        .buffered()
-                        .use { output ->
+                    outputFile.outputStream().buffered().use { output ->
                             transform(input, output)
                         }
                 }
@@ -274,7 +276,7 @@ abstract class TraceTransformTask : DefaultTask() {
 
     abstract class TransformClass : Transform<TransformClass.Parameters>() {
 
-        protected val normalizedPath: String
+        private val normalizedPath: String
             get() = parameters.normalizedPath.get()
 
         override val destination: File
@@ -285,15 +287,11 @@ abstract class TraceTransformTask : DefaultTask() {
             destination.parentFile.mkdirs()
             destination.createNewFile()
 
-            source.inputStream()
-                .buffered()
-                .use { input ->
-                    destination.outputStream()
-                        .buffered()
-                        .use { output ->
-                            transform(input, output)
-                        }
+            source.inputStream().buffered().use { input ->
+                destination.outputStream().buffered().use { output ->
+                    transform(input, output)
                 }
+            }
         }
 
         interface Parameters : Transform.Parameters {

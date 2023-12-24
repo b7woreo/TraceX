@@ -25,6 +25,10 @@ class MainActivity : ComponentActivity() {
         viewBinding.btnInc.setOnClickListener {
             viewModel.inc()
         }
+
+        viewBinding.btnDec.setOnClickListener {
+            viewModel.dec()
+        }
     }
 
 }

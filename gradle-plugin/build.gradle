@@ -32,4 +32,5 @@ gradlePlugin {
 dependencies {
     implementation libraries.android.gradle.api
     implementation libraries.asm
+    testImplementation libraries.kotlin.test
 }

@@ -1,9 +1,11 @@
 package com.example.library
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.launch
 
 class MainViewModel : ViewModel() {
 
@@ -15,14 +17,22 @@ class MainViewModel : ViewModel() {
         runCatching { incInternal() }
     }
 
+    fun dec() {
+        viewModelScope.launch {
+            decInternal()
+        }
+    }
+
     private fun incInternal() {
         val currentCount = mutableCount.getAndUpdate { it + 1 }
-        Thread.sleep(500)
         if (currentCount % 2 == 0) {
+            Thread.sleep(500)
             throw RuntimeException()
-        } else {
-            return
         }
+    }
+
+    private fun decInternal() {
+        mutableCount.getAndUpdate { it - 1 }
     }
 
 }

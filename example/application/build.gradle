@@ -32,7 +32,11 @@ android {
             matchingFallbacks = ['release']
             signingConfig debug.signingConfig
             tracex {
-                enable = true
+                enabled = true
+
+                include(
+                        "com.example.**"
+                )
             }
         }
     }

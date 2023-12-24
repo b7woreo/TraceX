@@ -24,4 +24,5 @@ android {
 
 dependencies {
     implementation(libraries.androidx.lifecycle.viewmodel)
+    implementation(libraries.kotlinx.coroutine.android)
 }
