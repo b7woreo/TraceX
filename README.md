@@ -1,7 +1,8 @@
 # TraceX
 [![](https://img.shields.io/gradle-plugin-portal/v/io.github.b7woreo.tracex)](https://plugins.gradle.org/plugin/io.github.b7woreo.tracex)
-
-TraceX 在编译时进行字节码插桩操作, 在所有方法的 __入口/出口__ 插入 `Trace#beginSection`/`Trace#endSection` 调用, 用于分析 android 应用性能.
+ 
+1. TraceX 在编译时进行字节码插桩操作, 在所有方法的 __入口/出口__ 插入 `Trace#beginSection`/`Trace#endSection` 调用, 用于分析 android 应用性能.
+2. TraceX 用于实践基于 artifact API 进行字节码操作的最佳方式.
 
 ## 使用方法
 
