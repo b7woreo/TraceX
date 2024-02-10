@@ -77,27 +77,33 @@ abstract class TraceTransformTask : DefaultTask() {
     fun transformClasses(inputChanges: InputChanges) = runBlocking {
         val intermediateDir = intermediateDir.asFile.get()
 
-        val jarsChangedClasses = getJarsChangedClasses(
-            jars = allJarsFileCollection,
-            previousHashFile = intermediateDir.resolve("jar-hashes"),
-        )
-        val directoriesChangedClasses = getDirectoriesChangedClasses(
-            directories = allDirectoriesFileCollection,
-            inputChanges = inputChanges,
-        )
-        val allChangedClasses = (jarsChangedClasses + directoriesChangedClasses)
-            .also {
-                println("Added classes: ${it.count { it.changeType == ChangeType.ADDED }}")
-                println("Modified classes: ${it.count { it.changeType == ChangeType.MODIFIED }}")
-                println("Removed classes: ${it.count { it.changeType == ChangeType.REMOVED }}")
-            }
+        val allChangedClasses = timeLog("Compute changed classes cost") {
+            val jarsChangedClasses = getJarsChangedClasses(
+                jars = allJarsFileCollection,
+                previousHashFile = intermediateDir.resolve("jar-hashes"),
+            )
+            val directoriesChangedClasses = getDirectoriesChangedClasses(
+                directories = allDirectoriesFileCollection,
+                inputChanges = inputChanges,
+            )
+            (jarsChangedClasses + directoriesChangedClasses)
+                .also {
+                    println("Added classes: ${it.count { it.changeType == ChangeType.ADDED }}")
+                    println("Modified classes: ${it.count { it.changeType == ChangeType.MODIFIED }}")
+                    println("Removed classes: ${it.count { it.changeType == ChangeType.REMOVED }}")
+                }
+        }
 
-        val transformedClasses = transformClasses(
-            classes = allChangedClasses,
-            intermediateDir.resolve("classes"),
-        )
+        val transformedClasses = timeLog("Transform classes cost") {
+            transformClasses(
+                classes = allChangedClasses,
+                intermediateDir.resolve("classes"),
+            )
+        }
 
-        mergeClasses(transformedClasses, outputJar.asFile.get())
+        timeLog("Merge classes cost") {
+            mergeClasses(transformedClasses, outputJar.asFile.get())
+        }
     }
 
     private suspend fun getJarsChangedClasses(
@@ -277,5 +283,12 @@ abstract class TraceTransformTask : DefaultTask() {
 
                 return !(lowerCase.startsWith("/meta-info/") || lowerCase.startsWith("meta-info/"))
             }
+    }
+
+    private inline fun <T> timeLog(message: String, block: () -> T): T {
+        val startTimestamp = System.currentTimeMillis()
+        val result = block()
+        println("$message: ${System.currentTimeMillis() - startTimestamp}")
+        return result
     }
 }
