@@ -1,13 +1,22 @@
 package tracex
 
+import com.android.zipflinger.BytesSource
+import com.android.zipflinger.ZipArchive
+import com.google.common.hash.Hashing
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFile
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
@@ -19,22 +28,14 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.work.ChangeType
 import org.gradle.work.Incremental
 import org.gradle.work.InputChanges
-import org.gradle.workers.WorkAction
-import org.gradle.workers.WorkParameters
-import org.gradle.workers.WorkQueue
-import org.gradle.workers.WorkerExecutor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.Opcodes
 import java.io.File
-import java.io.InputStream
-import java.io.OutputStream
+import java.io.ObjectInputStream
+import java.io.ObjectOutputStream
 import java.util.Locale
-import java.util.jar.JarEntry
-import java.util.jar.JarInputStream
-import java.util.jar.JarOutputStream
 import java.util.zip.Deflater
-import javax.inject.Inject
 
 
 @CacheableTask
@@ -67,246 +68,214 @@ abstract class TraceTransformTask : DefaultTask() {
     abstract val excludes: ListProperty<String>
 
     @get:OutputDirectory
-    abstract val intermediate: DirectoryProperty
+    abstract val intermediateDir: DirectoryProperty
 
     @get:OutputFile
     abstract val outputJar: RegularFileProperty
 
-    @get:Inject
-    abstract val workerExecutor: WorkerExecutor
-
     @TaskAction
-    fun transform(inputChanges: InputChanges) {
-        val incremental = inputChanges.isIncremental
-        if (!incremental) {
-            println("Full build mode")
-        } else {
-            println("Incremental build mode")
-        }
+    fun transformClasses(inputChanges: InputChanges) = runBlocking {
+        val intermediateDir = intermediateDir.asFile.get()
 
-        val workQueue = workerExecutor.noIsolation()
-        val intermediate = intermediate.get().asFile
+        val jarsChangedClasses = getJarsChangedClasses(
+            jars = allJarsFileCollection,
+            previousHashFile = intermediateDir.resolve("jar-hashes"),
+        )
+        val directoriesChangedClasses = getDirectoriesChangedClasses(
+            directories = allDirectoriesFileCollection,
+            inputChanges = inputChanges,
+        )
+        val allChangedClasses = (jarsChangedClasses + directoriesChangedClasses)
+            .also {
+                println("Added classes: ${it.count { it.changeType == ChangeType.ADDED }}")
+                println("Modified classes: ${it.count { it.changeType == ChangeType.MODIFIED }}")
+                println("Removed classes: ${it.count { it.changeType == ChangeType.REMOVED }}")
+            }
 
-        val intermediateJars = intermediate.resolve("jars")
-        val intermediateClasses = intermediate.resolve("classes")
-
-        transformJars(
-            inputChanges = inputChanges, intermediate = intermediateJars, workQueue = workQueue
+        val transformedClasses = transformClasses(
+            classes = allChangedClasses,
+            intermediateDir.resolve("classes"),
         )
 
-        transformClasses(
-            inputChanges = inputChanges, intermediate = intermediateClasses, workQueue = workQueue
+        mergeClasses(transformedClasses, outputJar.asFile.get())
+    }
+
+    private suspend fun getJarsChangedClasses(
+        jars: FileCollection,
+        previousHashFile: File,
+    ): List<ClassInfo> = coroutineScope {
+        val previousContentHash = runCatching {
+            ObjectInputStream(previousHashFile.inputStream().buffered()).use {
+                it.readObject() as Map<String, String>
+            }
+        }.getOrElse { emptyMap() }
+
+        val (currentContentHash, entries) = jars
+            .map { jarFile ->
+                val jarPath = jarFile.toPath()
+
+                async(Dispatchers.Default) {
+                    ZipArchive(jarPath).use { zip ->
+                        zip.listEntries()
+                            .map {
+                                val hash = Hashing.sha256()
+                                    .hashBytes(zip.getContent(it).array())
+                                    .toString()
+                                it to (hash to jarPath)
+                            }
+                    }
+                }
+            }
+            .flatMap { it.await() }
+            .associate { it }
+            .let {
+                it.mapValues { (_, value) -> value.first } to it.mapValues { (_, value) -> value.second }
+            }
+
+        ObjectOutputStream(previousHashFile.outputStream().buffered()).use {
+            it.writeObject(currentContentHash)
+        }
+
+        val maybeModified = currentContentHash.keys.intersect(previousContentHash.keys)
+        val added = currentContentHash.filterKeys { !maybeModified.contains(it) }.keys
+        val removed = previousContentHash.filterKeys { !maybeModified.contains(it) }.keys
+        val modified = maybeModified.filter { currentContentHash[it] != previousContentHash[it] }
+
+        fun content(name: String): () -> ByteArray {
+            return { ZipArchive(entries[name]).use { zip -> zip.getContent(name).array() } }
+        }
+
+        added.map {
+            ClassInfo(
+                name = it,
+                changeType = ChangeType.ADDED,
+                content = content(it)
+            )
+        } + modified.map {
+            ClassInfo(
+                name = it,
+                changeType = ChangeType.MODIFIED,
+                content = content(it)
+            )
+        } + removed.map {
+            ClassInfo(
+                name = it,
+                changeType = ChangeType.REMOVED,
+                content = { throw IllegalStateException() }
+            )
+        }
+    }
+
+    private fun getDirectoriesChangedClasses(
+        directories: FileCollection,
+        inputChanges: InputChanges,
+    ): List<ClassInfo> {
+        return inputChanges.getFileChanges(directories)
+            .map {
+                ClassInfo(
+                    name = it.normalizedPath,
+                    changeType = it.changeType,
+                    content = {
+                        if (it.changeType == ChangeType.REMOVED) throw IllegalStateException()
+                        else it.file.readBytes()
+                    }
+                )
+            }
+    }
+
+    private suspend fun transformClasses(classes: List<ClassInfo>, outputDir: File): List<ClassInfo> = coroutineScope {
+        val filter = TraceTagFilter(
+            includes = includes.get(),
+            excludes = excludes.get()
         )
 
-        workQueue.await()
-
-        mergeClasses(
-            outputJar.get().asFile, intermediateClasses, *(intermediateJars.listFiles() ?: emptyArray())
-        )
-    }
-
-    private fun transformJars(inputChanges: InputChanges, intermediate: File, workQueue: WorkQueue) {
-        val (jarChanges, reprocessAll) = JarsIdentity(
-            inputJars = allJarsFileCollection, inputChanges = inputChanges
-        ).compute()
-
-        if (reprocessAll) {
-            intermediate.deleteRecursively()
-        }
-
-        jarChanges.forEach { changedJar ->
-            workQueue.submit(TransformJar::class.java) {
-                it.identity.set(changedJar.identity)
-                it.source.set(changedJar.file)
-                it.changeType.set(ChangeType.MODIFIED)
-                it.intermediate.set(intermediate)
-                it.loggable.set(inputChanges.isIncremental)
-                it.includes.set(includes)
-                it.excludes.set(excludes)
-            }
-        }
-    }
-
-    private fun transformClasses(inputChanges: InputChanges, intermediate: File, workQueue: WorkQueue) {
-        val classChanges = inputChanges.getFileChanges(allDirectoriesFileCollection)
-        classChanges.forEach { changedClass ->
-            workQueue.submit(TransformClass::class.java) {
-                it.normalizedPath.set(changedClass.normalizedPath)
-                it.source.set(changedClass.file)
-                it.changeType.set(changedClass.changeType)
-                it.intermediate.set(intermediate)
-                it.loggable.set(inputChanges.isIncremental)
-                it.includes.set(includes)
-                it.excludes.set(excludes)
-            }
-        }
-    }
-
-    private fun mergeClasses(
-        outputJar: File,
-        vararg classpath: File,
-    ) {
-        JarOutputStream(
-            outputJar.outputStream().buffered()
-        ).use { jar ->
-            jar.setLevel(Deflater.NO_COMPRESSION)
-            classpath.forEach { rootDir ->
-                rootDir.allFiles { child ->
-                    val name = child.toRelativeString(rootDir)
-                    val entry = JarEntry(name)
-                    jar.putNextEntry(entry)
-                    child.inputStream().use { input -> input.transferTo(jar) }
-                    jar.closeEntry()
-                }
-            }
-        }
-    }
-
-    abstract class Transform<T : Transform.Parameters> : WorkAction<T> {
-
-        protected val source: File
-            get() = parameters.source.get().asFile
-
-        protected val intermediate: File
-            get() = parameters.intermediate.get().asFile
-
-        private val changeType: ChangeType
-            get() = parameters.changeType.get()
-
-        private val loggable: Boolean
-            get() = parameters.loggable.get()
-
-        private val filter: (String) -> Boolean by lazy {
-            val includes = parameters.includes.get()
-            val excludes = parameters.excludes.get()
-            val matcher = TraceTagMatcher(includes, excludes)
-            return@lazy { traceTag -> matcher.isMatch(traceTag) }
-        }
-
-        protected abstract val destination: File
-
-        protected abstract fun transform()
-
-        final override fun execute() {
-            if (loggable) {
-                println("[$changeType] $source -> $destination")
-            }
-
-            when (changeType) {
-                ChangeType.ADDED -> {
-                    transform()
-                }
-
-                ChangeType.MODIFIED -> {
-                    destination.deleteRecursively()
-                    transform()
-                }
-
-                ChangeType.REMOVED -> {
-                    destination.deleteRecursively()
-                }
-
-                else -> {}
-            }
-        }
-
-        protected fun includeFileInTransform(relativePath: String): Boolean {
-            val lowerCase = relativePath.lowercase(Locale.ROOT)
-            if (!lowerCase.endsWith(".class")) {
-                return false
-            }
-
-            if (lowerCase == "module-info.class" || lowerCase.endsWith("/module-info.class")) {
-                return false
-            }
-
-            return !(lowerCase.startsWith("/meta-info/") || lowerCase.startsWith("meta-info/"))
-        }
-
-        protected fun transform(
-            input: InputStream,
-            output: OutputStream,
-        ) {
+        fun doTransform(input: ByteArray): ByteArray {
             val cr = ClassReader(input)
             val cw = ClassWriter(ClassWriter.COMPUTE_MAXS)
             cr.accept(TraceClassVisitor(filter, Opcodes.ASM9, cw), ClassReader.EXPAND_FRAMES)
-            output.write(cw.toByteArray())
+            return cw.toByteArray()
         }
 
-        interface Parameters : WorkParameters {
-            val source: RegularFileProperty
-            val changeType: Property<ChangeType>
-            val intermediate: DirectoryProperty
-            val loggable: Property<Boolean>
-            val includes: ListProperty<String>
-            val excludes: ListProperty<String>
-        }
+        classes
+            .filter { it.canTransform }
+            .map { changedClass ->
+                async(Dispatchers.Default) {
+                    val outputFile = outputDir.resolve(changedClass.name)
+
+                    when (changedClass.changeType) {
+                        ChangeType.MODIFIED,
+                        ChangeType.REMOVED -> {
+                            outputFile.delete()
+                        }
+
+                        else -> {}
+                    }
+
+                    when (changedClass.changeType) {
+                        ChangeType.ADDED,
+                        ChangeType.MODIFIED -> {
+                            outputFile.parentFile.mkdirs()
+                            withContext(Dispatchers.IO) { outputFile.createNewFile() }
+                            outputFile.writeBytes(doTransform(changedClass.content()))
+                        }
+
+                        else -> {}
+                    }
+
+                    changedClass.copy(
+                        content = {
+                            if (changedClass.changeType == ChangeType.REMOVED) throw IllegalStateException()
+                            else outputFile.readBytes()
+                        }
+                    )
+                }
+            }.awaitAll()
     }
 
-    abstract class TransformJar : Transform<TransformJar.Parameters>() {
-        private val identity: String
-            get() = parameters.identity.get()
+    private fun mergeClasses(classes: List<ClassInfo>, outputJar: File) {
+        ZipArchive(outputJar.toPath()).use { zip ->
+            classes.forEach {
+                when (it.changeType) {
+                    ChangeType.MODIFIED,
+                    ChangeType.REMOVED -> {
+                        zip.delete(it.name)
+                    }
 
-        override val destination: File
-            get() = File(intermediate, identity)
+                    else -> {}
+                }
+            }
 
-        override fun transform() {
-            JarInputStream(
-                source.inputStream().buffered()
-            ).use { input ->
-                while (true) {
-                    val entry = input.nextEntry ?: break
-                    if (!includeFileInTransform(entry.name)) continue
-                    val outputFile = File(destination, entry.name).also {
-                            it.parentFile.mkdirs()
-                            it.createNewFile()
-                        }
+            classes.forEach {
+                when (it.changeType) {
+                    ChangeType.ADDED,
+                    ChangeType.MODIFIED -> {
+                        zip.add(BytesSource(it.content(), it.name, Deflater.NO_COMPRESSION))
 
-                    outputFile.outputStream().buffered().use { output ->
-                            transform(input, output)
-                        }
+                    }
+
+                    else -> {}
                 }
             }
         }
-
-        interface Parameters : Transform.Parameters {
-            val identity: Property<String>
-        }
     }
 
-    abstract class TransformClass : Transform<TransformClass.Parameters>() {
-
-        private val normalizedPath: String
-            get() = parameters.normalizedPath.get()
-
-        override val destination: File
-            get() = File(intermediate, normalizedPath)
-
-        override fun transform() {
-            if (!includeFileInTransform(normalizedPath)) return
-            destination.parentFile.mkdirs()
-            destination.createNewFile()
-
-            source.inputStream().buffered().use { input ->
-                destination.outputStream().buffered().use { output ->
-                    transform(input, output)
+    private data class ClassInfo(
+        val name: String,
+        val changeType: ChangeType,
+        val content: () -> ByteArray,
+    ) {
+        val canTransform: Boolean
+            get() {
+                val lowerCase = name.lowercase(Locale.ROOT)
+                if (!lowerCase.endsWith(".class")) {
+                    return false
                 }
+
+                if (lowerCase == "module-info.class" || lowerCase.endsWith("/module-info.class")) {
+                    return false
+                }
+
+                return !(lowerCase.startsWith("/meta-info/") || lowerCase.startsWith("meta-info/"))
             }
-        }
-
-        interface Parameters : Transform.Parameters {
-            val normalizedPath: Property<String>
-        }
     }
-
-    private fun File.allFiles(block: (File) -> Unit) {
-        if (this.isFile) {
-            block(this)
-            return
-        }
-
-        val children = listFiles() ?: return
-        children.forEach { it.allFiles(block) }
-    }
-
 }

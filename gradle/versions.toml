@@ -1,14 +1,18 @@
 [versions]
-android = '8.2.0'
+android = '8.0.0'
 kotlin = '1.9.21'
+kotlinx_coroutine = '1.7.3'
 
 [libraries]
 android_gradle_api = { module = "com.android.tools.build:gradle-api", version.ref = 'android' }
+android_zipflinger = { module = 'com.android:zipflinger', version.ref = 'android'}
 asm = { module = 'org.ow2.asm:asm-commons', version = '9.6' }
 androidx_lifecycle_viewmodel = { module = 'androidx.lifecycle:lifecycle-viewmodel-ktx', version = '2.6.2' }
 androidx_activity = { module = 'androidx.activity:activity-ktx', version = '1.8.2' }
 kotlin_test = { module = 'org.jetbrains.kotlin:kotlin-test', version.ref = 'kotlin' }
-kotlinx_coroutine_android = { module = 'org.jetbrains.kotlinx:kotlinx-coroutines-android', version = '1.7.3' }
+kotlinx_coroutine_android = { module = 'org.jetbrains.kotlinx:kotlinx-coroutines-android', version.ref = 'kotlinx_coroutine' }
+kotlinx_coroutine_core = { module = 'org.jetbrains.kotlinx:kotlinx-coroutines-core', version.ref = 'kotlinx_coroutine' }
+guava = { module = 'com.google.guava:guava', version = '33.0.0-jre' }
 
 [plugins]
 android_application = { id = 'com.android.application', version.ref = 'android' }

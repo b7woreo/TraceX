@@ -38,7 +38,7 @@ abstract class TracePlugin : Plugin<Project> {
             ) {
                 it.includes.set(traceExtension.includes)
                 it.excludes.set(traceExtension.excludes)
-                it.intermediate.set(project.layout.buildDirectory.dir("intermediates/tracex/${variant.name}"))
+                it.intermediateDir.set(project.layout.buildDirectory.dir("intermediates/tracex/${variant.name}"))
             }
 
             variant.artifacts.forScope(ScopedArtifacts.Scope.ALL).use(traceTransformTask).toTransform(

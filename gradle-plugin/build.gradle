@@ -31,6 +31,9 @@ gradlePlugin {
 
 dependencies {
     implementation libraries.android.gradle.api
+    implementation libraries.android.zipflinger
     implementation libraries.asm
+    implementation libraries.kotlinx.coroutine.core
+    implementation libraries.guava
     testImplementation libraries.kotlin.test
 }
