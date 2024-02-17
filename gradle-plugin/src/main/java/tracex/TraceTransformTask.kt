@@ -8,7 +8,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
@@ -74,7 +73,7 @@ abstract class TraceTransformTask : DefaultTask() {
     abstract val outputJar: RegularFileProperty
 
     @TaskAction
-    fun transformClasses(inputChanges: InputChanges) = runBlocking {
+    fun transform(inputChanges: InputChanges) = runBlocking {
         val intermediateDir = intermediateDir.asFile.get()
 
         val allChangedClasses = timeLog("Compute changed classes cost") {
@@ -97,7 +96,7 @@ abstract class TraceTransformTask : DefaultTask() {
         val transformedClasses = timeLog("Transform classes cost") {
             transformClasses(
                 classes = allChangedClasses,
-                intermediateDir.resolve("classes"),
+                outputDir = intermediateDir.resolve("classes"),
             )
         }
 
@@ -112,6 +111,7 @@ abstract class TraceTransformTask : DefaultTask() {
     ): List<ClassInfo> = coroutineScope {
         val previousContentHash = runCatching {
             ObjectInputStream(previousHashFile.inputStream().buffered()).use {
+                @Suppress("UNCHECKED_CAST")
                 it.readObject() as Map<String, String>
             }
         }.getOrElse { emptyMap() }
@@ -220,9 +220,11 @@ abstract class TraceTransformTask : DefaultTask() {
                     when (changedClass.changeType) {
                         ChangeType.ADDED,
                         ChangeType.MODIFIED -> {
-                            outputFile.parentFile.mkdirs()
-                            withContext(Dispatchers.IO) { outputFile.createNewFile() }
-                            outputFile.writeBytes(doTransform(changedClass.content()))
+                            outputFile.run {
+                                parentFile.mkdirs()
+                                createNewFile()
+                                writeBytes(doTransform(changedClass.content()))
+                            }
                         }
 
                         else -> {}
@@ -256,7 +258,6 @@ abstract class TraceTransformTask : DefaultTask() {
                     ChangeType.ADDED,
                     ChangeType.MODIFIED -> {
                         zip.add(BytesSource(it.content(), it.name, Deflater.NO_COMPRESSION))
-
                     }
 
                     else -> {}
