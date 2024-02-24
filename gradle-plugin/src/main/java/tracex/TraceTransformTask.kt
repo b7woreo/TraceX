@@ -23,6 +23,8 @@ import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.ChangeType
 import org.gradle.work.Incremental
@@ -47,7 +49,7 @@ abstract class TraceTransformTask : DefaultTask() {
     abstract val allDirectories: ListProperty<Directory>
 
     @get:InputFiles
-    @get:Classpath
+    @get:PathSensitive(PathSensitivity.NONE)
     @get:Incremental
     val allJarsFileCollection: ConfigurableFileCollection by lazy {
         project.files(allJars)
