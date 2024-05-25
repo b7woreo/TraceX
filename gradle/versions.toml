@@ -1,7 +1,7 @@
 [versions]
-android = '8.2.2'
-kotlin = '1.9.22'
-kotlinx_coroutine = '1.7.3'
+android = '8.4.0'
+kotlin = '2.0.0'
+kotlinx_coroutine = '1.8.1'
 
 [libraries]
 android_gradle_api = { module = "com.android.tools.build:gradle-api", version.ref = 'android' }
